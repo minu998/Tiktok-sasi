@@ -37,9 +37,6 @@
   function normalizeMe(j) {
     if (!j) return { user: null, admin: false };
     if (j.user) {
-      // Local-server shape ({user, admin}). tier may be a string (e.g. "member"),
-      // an object, or null depending on the backend — normalise it so every
-      // downstream read of user.tier.* is safe.
       const raw = j.user;
       let t = raw.tier;
       if (typeof t === "string") { const m = TIER_MAP[t] || TIER_MAP.member; t = { tier: t, tierLabel: m[0], tierMB: m[1], tierRes: m[2], tierFPS: m[3] }; }
@@ -95,7 +92,6 @@
       if (cacheable && out.ok) cacheWrite(path, out);
       return out;
     } catch (e) {
-      // server unreachable / file:// — fall back to stale cache if we have one
       if (cacheable) { const stale = cacheStale(path); if (stale) return stale; }
       return null;
     }
@@ -119,18 +115,14 @@
   function setUsagePill(user) {
     const pill = $("#nav-usage");
     if (!pill) return;
-    // user can be null (logged out) — renderAuth() calls this unconditionally.
-    if (!user) { pill.innerHTML = "<b>0</b>/Unlimited"; return; }
+    if (!user) { pill.innerHTML = "<b>∞</b> · Free"; return; }
     const t = user.tier || {};
-    // Daily upload limit (display only; enforcement is server-side).
     const limit = PATCH_LIMIT[t.tier] || null;
     pill.innerHTML = limit ? `<b>${limit}</b>/DAY · ${t.tierLabel || ""}` : `<b>Unlimited</b> · ${t.tierLabel || ""}`;
   }
   function renderAuth(user, devMode) {
     const login = $("#btn-login"), dev = $("#btn-dev"), logout = $("#btn-logout"), chip = $("#nav-user");
     const useDev = !!(dev && devMode && !API_DISCORD);
-    // Logout is ALWAYS visible (PC + mobile) — clicking while logged out just
-    // lands back on the dashboard.
     if (logout) {
       logout.style.display = "inline-flex";
       logout.onclick = async () => { await api("/api/logout", { method: "POST" }); location.href = "/"; };
@@ -152,7 +144,6 @@
       if (dev) dev.style.display = "none";
       if (chip) chip.style.display = "none";
     }
-    // in-UI login button (dashboard hero) — only when logged out
     const hl = $("#hero-login");
     if (hl) {
       if (user) { hl.style.display = "none"; hl.innerHTML = ""; }
@@ -167,7 +158,6 @@
         }
       }
     }
-    // bottom nav login item: Discord Login vs username
     const bn = $("#bn-login");
     if (bn) {
       if (user) {
@@ -184,7 +174,6 @@
         bn.classList.remove("active");
       }
     }
-    // bottom nav logout (mobile) — always visible
     const bnLo = $("#bn-logout");
     if (bnLo) {
       bnLo.style.display = "flex";
@@ -212,8 +201,6 @@
       });
     });
 
-    // Live stats: load now + refresh every 15s (cache-busted so the numbers
-    // actually move as patches happen, instead of feeling static).
     const loadStats = () => {
       api("/api/stats?_t=" + Date.now()).then((r) => {
         if (r && r.ok) renderStats(r.json);
@@ -229,8 +216,6 @@
 
   function renderStats(s) {
     if (!s) {
-      // Stats unavailable → show placeholders, but the engine is ALWAYS
-      // reported as ONLINE (never show the OFFLINE state).
       [["#kpi-patches", "—"], ["#kpi-users", "—"], ["#kpi-today", "—"]].forEach(([sel, v]) => {
         const n = $(sel); if (n) n.textContent = v;
       });
@@ -249,18 +234,14 @@
       const io = new IntersectionObserver((es) => es.forEach((e) => { if (e.isIntersecting) { countUp(node, v, 1300); io.disconnect(); } }), { threshold: 0.3 });
       io.observe(node);
     });
-    // 7-day total from the daily chart (usage window is daily now, so
-    // "patchesWeek" == today's count — show the real 7-day figure instead).
     const weekTotal = (s.daily || []).reduce((a, d) => a + (d.count || 0), 0);
     if ($("#kpi-today-foot")) $("#kpi-today-foot").textContent = fmt(weekTotal) + " LAST 7 DAYS";
-    // Users KPI: registered (all-time) + real usage breakdown.
     if ($("#kpi-users-foot")) {
       const used = (s.usersUsed != null) ? s.usersUsed : "—";
       const act = (s.active7d != null) ? s.active7d : "—";
       $("#kpi-users-foot").textContent = used + " USED TOOLS · " + act + " ACTIVE 7D";
     }
     const eng = s.engine || {};
-    // Engine status is always reported ONLINE per product decision.
     if ($("#eng-dot")) $("#eng-dot").classList.remove("off");
     if ($("#eng-text")) { $("#eng-text").textContent = "ONLINE"; $("#eng-text").style.color = ""; }
     if ($("#eng-version")) $("#eng-version").textContent = "RTX ENGINE " + (eng.version || "v2.0.0");
@@ -277,7 +258,6 @@
     if ($("#tier-mb")) $("#tier-mb").textContent = (t.tierMB > 0 ? t.tierMB + " MB" : "Unlimited");
     if ($("#tier-res")) $("#tier-res").textContent = t.tierRes;
     if ($("#tier-fps")) $("#tier-fps").textContent = t.tierFPS + " FPS";
-    // Daily upload usage bar: member shows "Unlimited" (since PATCH_LIMIT.member = null)
     const pbText = $("#pb-text"), pbSub = $("#pb-sub"), pbFill = $("#pb-fill");
     if (pbText && pbSub && pbFill) {
       const limit = PATCH_LIMIT[t.tier] || null;
@@ -317,22 +297,20 @@
     });
   }
 
-  /* Compare slider: real video layers (synced, CSS fallback on failure) */
   function initCompareVideo() {
     const va = $("#vid-a"), vb = $("#vid-b");
     if (!va || !vb) return;
     const hq = (window.RTX && window.RTX.VIDEO_HQ) || "";
     const lq = (window.RTX && window.RTX.VIDEO_LQ) || "";
-    if (!hq || !lq) return; // keep the CSS test chart
+    if (!hq || !lq) return;
 
     function fail(v) {
-      // video can't load — CSS scene stays visible underneath
       v.classList.remove("on");
     }
     va.preload = "auto";
     vb.preload = "auto";
-    va.src = lq; // LEFT — TikTok side 720p30
-    vb.src = hq; // RIGHT — RTXFury side 4K120
+    va.src = lq;
+    vb.src = hq;
     va.classList.add("on");
     vb.classList.add("on");
     va.addEventListener("error", () => fail(va));
@@ -340,7 +318,6 @@
 
     let started = false, raf = 0;
 
-    // Start both only after BOTH have metadata — never call play() early.
     function tryStart() {
       if (started || va.readyState < 1 || vb.readyState < 1) return;
       started = true;
@@ -352,17 +329,15 @@
     va.addEventListener("loadedmetadata", tryStart);
     vb.addEventListener("loadedmetadata", tryStart);
 
-    // Continuous tight sync: snap the laggard to the leader; while the heavy
-    // (HQ) clip is buffering, hold the other so they never drift apart.
     function tick() {
       const dt = va.currentTime - vb.currentTime;
       if (Math.abs(dt) > 0.12) {
         if (dt > 0) {
-          if (vb.paused && !vb.ended) va.pause();           // b buffering — hold a
-          else vb.currentTime = va.currentTime;             // snap b forward
+          if (vb.paused && !vb.ended) va.pause();
+          else vb.currentTime = va.currentTime;
         } else {
-          if (va.paused && !va.ended) vb.pause();           // a buffering — hold b
-          else va.currentTime = vb.currentTime;             // snap a forward
+          if (va.paused && !va.ended) vb.pause();
+          else va.currentTime = vb.currentTime;
         }
       } else {
         if (va.paused && !vb.paused && !va.ended) va.play().catch(() => {});
@@ -370,25 +345,14 @@
       }
       raf = requestAnimationFrame(tick);
     }
-
-    // NOTE: no pause/resume on slider drag — the slider only moves the clip
-    // mask (--pos), so both videos keep playing while you drag the handle.
-    // The tick() loop above keeps them locked in sync at all times.
   }
 
-  /* ── Local file scan: resolution / duration / FPS ─────────────
-     Two layers so it works for every file the patcher accepts:
-       1. <video> element metadata — fast path for H.264 MP4/MOV.
-       2. Manual MP4/MOV box parsing (moov → tkhd/mdhd/stts) — container
-          level, no codec decode needed, so HEVC (H.265) and MOV variants
-          the browser can't play still report correct specs. Same box-walk
-          approach the server uses in api/_lib/tiktok.ts. */
+  /* ── Local file scan ────────────────────────────────────── */
   function readVideoMeta(file) {
     return new Promise((resolve) => {
       let settled = false;
       let codec = "";
       const finish = (m) => { if (!settled) { settled = true; resolve(m); } };
-      // Codec sniff (head/tail slices) — lets us flag HEVC before processing.
       (async () => {
         try {
           const head = new Uint8Array(await file.slice(0, SCAN_HEAD).arrayBuffer());
@@ -402,10 +366,8 @@
           }
         } catch (e) {}
       })();
-      // Safety net — never leave the UI on "SCANNING…" forever.
       const safety = setTimeout(() => finish(null), 12000);
 
-      // Layer 1: browser decode path (works for H.264/H.265-capable setups)
       const url = URL.createObjectURL(file);
       const vid = document.createElement("video");
       vid.preload = "metadata";
@@ -421,15 +383,12 @@
         } catch (e) {}
         try { URL.revokeObjectURL(url); } catch (e) {}
         if (w > 0 && h > 0) finish({ w, h, dur, fps, codec });
-        // w/h 0 (e.g. codec not decodable) → layer 2 result (if any) wins;
-        // parseMP4Boxes below already resolves finish() in every case.
       };
       vid.onerror = () => {
         clearTimeout(safety);
         try { URL.revokeObjectURL(url); } catch (e) {}
       };
 
-      // Layer 2: container box parse — always resolves (data or null).
       parseMP4Boxes(file).then((m) => {
         clearTimeout(safety);
         if (m && (m.w > 0 || m.fps > 0 || m.dur > 0)) finish({ w: m.w, h: m.h, dur: m.dur, fps: m.fps, codec });
@@ -438,14 +397,13 @@
     });
   }
 
-  const SCAN_HEAD = 1024 * 1024; // 1MB — faststart MP4s have moov up front
-  const SCAN_TAIL = 1024 * 1024; // 1MB — non-faststart MP4s have moov at the end
+  const SCAN_HEAD = 1024 * 1024;
+  const SCAN_TAIL = 1024 * 1024;
 
   async function parseMP4Boxes(file) {
     const u32 = (b, o) => ((b[o] << 24) | (b[o + 1] << 16) | (b[o + 2] << 8) | b[o + 3]) >>> 0;
     const t4 = (b, o) => String.fromCharCode(b[o], b[o + 1], b[o + 2], b[o + 3]);
 
-    // Parse sibling boxes starting at `start` (assumes box alignment there).
     const boxList = (b, start, end) => {
       const out = [];
       let p = start;
@@ -460,8 +418,6 @@
       return out;
     };
     const findBox = (list, t) => list.find((x) => x.t === t);
-    // Locate a box by type anywhere in the chunk (tail slices don't start on
-    // a box boundary): finds "type" preceded by a plausible size.
     const scanBox = (b, type) => {
       for (let i = 4; i + 4 <= b.length; i++) {
         if (t4(b, i) !== type) continue;
@@ -487,12 +443,10 @@
         const minf = findBox(mb, "minf");
         if (!minf) continue;
         const minfb = boxList(b, minf.s, minf.e);
-        if (!findBox(minfb, "vmhd")) continue; // audio track — skip
+        if (!findBox(minfb, "vmhd")) continue;
         const tkhd = findBox(tb, "tkhd");
         if (tkhd) {
           const ver = b[tkhd.s];
-          // tkhd payload: version+flags(4) + 3×(20|32)-bit fields + reserved(8)
-          // + layer/alt/volume/reserved(8) + matrix(36) → width at 76 (v0) / 88 (v1)
           const wOff = tkhd.s + (ver === 1 ? 88 : 76);
           if (wOff + 8 <= b.length) { meta.w = u32(b, wOff) >>> 16; meta.h = u32(b, wOff + 4) >>> 16; }
         }
@@ -512,10 +466,6 @@
             if (stts && stts.s + 16 <= b.length) {
               const count = u32(b, stts.s + 4);
               if (count > 0) {
-                // Average over the FULL time-to-sample table (not the first
-                // entry). A one-frame blip at the start used to read ~300fps
-                // on real 120fps files, got dropped by the sanity range, and
-                // the video passed the local check as "fps?".
                 const base = stts.s + 8;
                 const max = Math.min(count, Math.floor((b.length - base) / 8));
                 let sumF = 0, sumT = 0;
@@ -544,7 +494,7 @@
     return null;
   }
 
-  /* ── Patcher console (log terminal inside the processing view) ── */
+  /* ── Patcher console ────────────────────────────────────── */
   function procLog(msg, cls) {
     const log = $("#procLog");
     if (!log) return;
@@ -555,8 +505,6 @@
     log.scrollTop = log.scrollHeight;
   }
 
-  // Console line that updates in place (used for live download progress)
-  // so a slow connection reports progress instead of spamming the log.
   function procLogDl(msg) {
     const log = $("#procLog");
     if (!log) return;
@@ -596,18 +544,11 @@
     const AGAIN_LABEL = againBtn ? againBtn.textContent : "";
     if (!input || !zone) return;
 
-    let file = null, objectUrl = null, timers = [], abortCtrl = null, activeXhr = null, limitMB = 80, tierLabel = "MEMBER", apiLive = true, devMode = false, loggedIn = false, patchedName = "", tierKey = "member", discordId = "", lastScan = null, lastHealth = "";
-    // Smooth progress while the server processes (upload done, response
-    // pending) — the bar eases 90% → ~98% instead of stalling.
+    let file = null, objectUrl = null, timers = [], abortCtrl = null, activeXhr = null, limitMB = 0, tierLabel = "FREE", apiLive = true, devMode = false, patchedName = "", tierKey = "member", discordId = "", lastScan = null, lastHealth = "";
     let finalizeTimer = null;
     let animBand = 75;
     let lastFileHevc = false, slowMsgShown1 = false, slowMsgShown2 = false;
     function stopFinalizeAnim() { if (finalizeTimer) { clearInterval(finalizeTimer); finalizeTimer = null; } }
-    // Banded smooth mover (never stalls):
-    //   band 75  = server processing (50%→75%)
-    //   band 99.9 = response streaming without Content-Length
-    // Once real download bytes are known, the interval is stopped and the bar
-    // is driven by actual bytes from the current % to 100%.
     function startFinalizeAnim(band) {
       stopFinalizeAnim();
       animBand = typeof band === "number" ? band : 75;
@@ -627,12 +568,13 @@
     }
 
     api("/api/health").then((h) => { apiLive = !!(h && h.ok); devMode = !!(h && h.json && h.json.devMode); API_DISCORD = !!(h && h.json && h.json.discordConfigured); });
+    
+    // ★ Get user info but don't require login
     api("/api/me").then((m) => {
       const me = m && m.json;
       const { user } = normalizeMe(me);
       renderAuth(user, devMode);
       if (user) {
-        loggedIn = true;
         tierKey = user.tier.tier;
         discordId = (me && me.discord_id) || "";
         limitMB = user.tier.tierMB;
@@ -646,13 +588,21 @@
           if (user.avatar) av.innerHTML = '<img src="' + esc(user.avatar) + '" alt=""/>';
           else av.textContent = (user.username || "U")[0].toUpperCase();
         }
+      } else {
+        // ★ Guest mode: unlimited free patches
+        tierKey = "member";
+        tierLabel = "FREE";
+        limitMB = 0;
+        setLimit(0);
+        setUsagePill(null);
+        const lbl = $("#usage-tier-label"), cnt = $("#usage-count"), av = $("#usage-avatar");
+        if (lbl) lbl.textContent = "Guest";
+        if (cnt) cnt.textContent = "∞";
+        if (av) av.textContent = "G";
       }
     });
 
-    // Keep the usage counter in sync — admin resets / other sessions would
-    // otherwise leave a stale "3/3" on screen until the next reload.
     setInterval(() => {
-      if (!loggedIn) return;
       api("/api/me").then((m) => {
         const me = m && m.json;
         const cnt = $("#usage-count");
@@ -660,15 +610,12 @@
       }).catch(() => {});
     }, 45000);
 
-    // Patches are unlimited for all tiers (server-side TIER_PATCH_LIMITS is
-    // None). No client-side daily cap — the backend is the source of truth.
-
     const scan = { size: $("#sv-size"), res: $("#sv-res"), dur: $("#sv-dur"), health: $("#sv-health") };
     const setLimit = (used) => {
       const u = Number.isFinite(used) ? used : 0;
       const pct = limitMB > 0 ? Math.min(100, (u / limitMB) * 100) : 0;
       $("#limitFill").style.width = pct + "%";
-      $("#limitText").textContent = u.toFixed(1) + " MB / " + (limitMB > 0 ? limitMB + " MB" : "Unlimited") + " · " + (tierLabel || "MEMBER");
+      $("#limitText").textContent = u.toFixed(1) + " MB / " + (limitMB > 0 ? limitMB + " MB" : "Unlimited") + " · " + (tierLabel || "FREE");
     };
 
     function resetTimers() { timers.forEach(clearTimeout); timers = []; }
@@ -683,7 +630,6 @@
       $("#progressStage").textContent = "Processing…";
       $("#procStatus").textContent = "RTX Engine v2.0.0";
       $("#cancelBtn").style.display = "";
-      // Idle state: full upload box + a single Patch Video button.
       $("#dropZone").style.display = "";
       runBtn.style.display = "";
       runBtn.disabled = false;
@@ -693,38 +639,33 @@
       setLimit(0);
     }
 
+    // ★ Login checks REMOVED from all event listeners
     zone.addEventListener("click", () => {
-      if (!loggedIn) { openLogin(); return; }
       input.click();
     });
     input.addEventListener("change", () => {
-      if (!loggedIn) { openLogin(); input.value = ""; return; }
       if (input.files[0]) handleFile(input.files[0]);
     });
     ["dragenter", "dragover"].forEach((ev) => zone.addEventListener(ev, (e) => { e.preventDefault(); zone.classList.add("drag"); }));
     ["dragleave", "drop"].forEach((ev) => zone.addEventListener(ev, (e) => { e.preventDefault(); zone.classList.remove("drag"); }));
     zone.addEventListener("drop", (e) => {
-      if (!loggedIn) { openLogin(); return; }
       if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
     });
 
-  function handleFile(f) {
-    if (objectUrl) URL.revokeObjectURL(objectUrl);
-    file = f;
-    objectUrl = URL.createObjectURL(f);
-    const sizeMB = f.size / (1024 * 1024);
+    function handleFile(f) {
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+      file = f;
+      objectUrl = URL.createObjectURL(f);
+      const sizeMB = f.size / (1024 * 1024);
       scan.size.textContent = sizeMB.toFixed(1) + " MB";
       scan.res.textContent = "SCANNING…"; scan.dur.textContent = "SCANNING…";
       scan.health.textContent = "SCANNING…"; scan.health.style.color = "var(--text-3)";
       setLimit(sizeMB);
       $("#scanView").classList.add("show");
-      // ★ CHANGE: Free users now have unlimited file size
-      const over = false; // Always false — no file size limit
+      const over = false; // No file size limit
       runBtn.disabled = over;
       if (over) { scan.health.textContent = "OVER LIMIT"; scan.health.style.color = "var(--red)"; }
 
-      // Resolution / duration / FPS scan — works even for HEVC/MOV files the
-      // browser can't decode (video element falls back to box parsing).
       lastScan = null; lastHealth = "";
       readVideoMeta(f).then((meta) => {
         const caps = TIER_RES[tierKey] || TIER_RES.member;
@@ -745,7 +686,6 @@
         if (meta.dur > 0) scan.dur.textContent = Math.floor(meta.dur / 60) + ":" + String(Math.floor(meta.dur % 60)).padStart(2, "0");
         else scan.dur.textContent = "UNKNOWN";
 
-        // ★ CHANGE: Tier caps now allow 4K120 for member (same as donor)
         const fps = meta.fps > 0 ? meta.fps : 0;
         const hiFPS = caps.hiFPS || caps.maxFPS;
         const capLong = fps > caps.maxFPS ? (caps.hiResLong || caps.resLong) : caps.resLong;
@@ -755,8 +695,6 @@
         const fpsBad = fps > hiFPS;
         const blocked = over || resBad || fpsBad;
         runBtn.disabled = blocked;
-        // Health verdict: passes the tier checks → READY TO PATCH;
-        // any size/res/FPS violation → needs a higher tier (UPGRADE TO PATCH).
         if (blocked) {
           scan.health.textContent = "UPGRADE TO OPTIMIZE"; scan.health.style.color = "var(--red)";
           alert("This video exceeds your tier limits (size/resolution/FPS) — upgrade to optimize it.");
@@ -764,29 +702,13 @@
         } else {
           scan.health.textContent = "READY TO OPTIMIZE"; scan.health.style.color = "var(--green)";
           lastHealth = scan.health.textContent;
-          // Daily usage pre-check: the real gate is /api/authorize (which
-          // reserves a use server-side), this just gives a friendly early alert.
-          (async () => {
-            try {
-              const usage = await api("/api/usage");
-              if (usage && usage.ok && usage.limit !== null && usage.used >= usage.limit) {
-                alert("You've reached your upload limit of " + usage.limit + " videos for today (" + usage.used + "/" + usage.limit + " used). Wait until midnight UTC for the limit to reset.");
-                if (objectUrl) { URL.revokeObjectURL(objectUrl); objectUrl = null; }
-                file = null; input.value = "";
-                resetUI();
-                return;
-              }
-            } catch (e) { /* usage check is best-effort — never block on a hiccup */ }
-            // File is scanned and within tier limits — the Patch button
-            // stays enabled and the user starts the patch manually.
-          })();
         }
       });
     }
 
+    // ★ runBtn with guest mode support (no login required)
     runBtn.addEventListener("click", () => {
-      if (!loggedIn) { openLogin(); return; }
-      if (!file) { input.click(); return; } // no file yet → open the picker
+      if (!file) { input.click(); return; }
       resetTimers();
       abortCtrl = new AbortController();
       activeXhr = null;
@@ -794,11 +716,10 @@
       $("#processingView").style.display = "block";
       $("#progressFill").style.width = "0";
       $("#progressPct").textContent = "0%";
-      $("#progressStage").textContent = "Checking daily usage…";
+      $("#progressStage").textContent = "Starting optimization…";
       $("#procStatus").textContent = "RTX Engine v2 · CLOUD";
       dlBtn.disabled = true;
 
-      // Console: start a fresh log for this run.
       const plog = $("#procLog");
       if (plog) plog.innerHTML = "";
       procLog("RTXFury — RTX Server Optimize", "hi");
@@ -814,64 +735,66 @@
         );
       }
 
-      // Progress model:
-      //   1%         authorizing (REAL server gate: reserves one use)
-      //   1%–50%     uploading to the RTX server patch engine
-      //   50%–75%    processing (server encoding + patching)
-      //   75%–100%   downloading the optimized file back
       timers.push(setTimeout(async () => {
         try {
-          // ── Server gate: get a patch token ──
-          // /api/authorize (Vercel) validates the Discord session, refreshes
-          // the live tier from the patch service, and returns a short-lived
-          // HMAC-signed token. The daily-limit gate itself is enforced by
-          // the patch service at upload time — counted once per patch.
-          $("#progressStage").textContent = "Checking daily usage…";
-          const auth = await api("/api/authorize", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: "{}",
-          });
-          if (abortCtrl && abortCtrl.signal.aborted) throw new Error("aborted");
-          if (!auth || !auth.ok || !auth.json || auth.json.ok !== true) {
-            const msg = (auth && auth.json && auth.json.error) || "Authorization failed — try again.";
-            procLog("Blocked: " + msg, "err");
-            $("#procStatus").textContent = "Limit reached";
-            $("#progressStage").textContent = msg;
-            timers.push(setTimeout(() => resetUI(), 5000));
-            return;
-          }
-          const tk = auth.json;
-          $("#progressFill").style.width = "1%";
-          $("#progressPct").textContent = "1%";
-          procLog("Auth: OK [" + (tk.tier || tierLabel || "MEMBER").toLowerCase() + "]", "ok");
-          if (typeof tk.patches_used === "number") {
-            procLog("Usage: " + tk.patches_used + " / " + (tk.patches_limit === null || tk.patches_limit === undefined ? "Unlimited" : tk.patches_limit) + " today", "pur");
-            const _cnt = $("#usage-count");
-            if (_cnt) _cnt.textContent = String(tk.patches_used);
-          }
-          // ★ CHANGE: Bypass daily limit check for member (free) users
-          if (tierKey !== "member" && typeof tk.patches_used === "number" && tk.patches_limit !== null && tk.patches_limit !== undefined && tk.patches_used >= tk.patches_limit) {
-            const limitMsg = "You've reached your upload limit of " + tk.patches_limit + " videos for today (" + tk.patches_used + "/" + tk.patches_limit + " used). Wait until midnight UTC for the limit to reset.";
-            procLog("Limit: " + limitMsg, "err");
-            $("#procStatus").textContent = "Limit reached";
-            $("#progressStage").textContent = limitMsg;
-            // Clear the selected file so the dropzone doesn't keep showing it
-            if (objectUrl) { URL.revokeObjectURL(objectUrl); objectUrl = null; }
-            file = null; input.value = "";
-            timers.push(setTimeout(() => resetUI(), 6000));
-            return;
+          // ★ Guest mode: check if user is logged in, else use guest token
+          const meResponse = await api("/api/me");
+          const { user } = normalizeMe(meResponse && meResponse.json);
+          let tk = null;
+          let isGuest = !user;
+
+          if (user) {
+            // Logged in user → real authorize
+            $("#progressStage").textContent = "Checking daily usage…";
+            const auth = await api("/api/authorize", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: "{}",
+            });
+            if (abortCtrl && abortCtrl.signal.aborted) throw new Error("aborted");
+            if (!auth || !auth.ok || !auth.json || auth.json.ok !== true) {
+              const msg = (auth && auth.json && auth.json.error) || "Authorization failed — try again.";
+              procLog("Blocked: " + msg, "err");
+              $("#procStatus").textContent = "Limit reached";
+              $("#progressStage").textContent = msg;
+              timers.push(setTimeout(() => resetUI(), 5000));
+              return;
+            }
+            tk = auth.json;
+            $("#progressFill").style.width = "1%";
+            $("#progressPct").textContent = "1%";
+            procLog("Auth: OK [" + (tk.tier || tierLabel || "MEMBER").toLowerCase() + "]", "ok");
+            if (typeof tk.patches_used === "number") {
+              procLog("Usage: " + tk.patches_used + " / " + (tk.patches_limit === null || tk.patches_limit === undefined ? "Unlimited" : tk.patches_limit) + " today", "pur");
+              const _cnt = $("#usage-count");
+              if (_cnt) _cnt.textContent = String(tk.patches_used);
+            }
+            // Daily limit check only for non-member (paid) users
+            if (tierKey !== "member" && typeof tk.patches_used === "number" && tk.patches_limit !== null && tk.patches_limit !== undefined && tk.patches_used >= tk.patches_limit) {
+              const limitMsg = "You've reached your upload limit of " + tk.patches_limit + " videos for today (" + tk.patches_used + "/" + tk.patches_limit + " used). Wait until midnight UTC for the limit to reset.";
+              procLog("Limit: " + limitMsg, "err");
+              $("#procStatus").textContent = "Limit reached";
+              $("#progressStage").textContent = limitMsg;
+              if (objectUrl) { URL.revokeObjectURL(objectUrl); objectUrl = null; }
+              file = null; input.value = "";
+              timers.push(setTimeout(() => resetUI(), 6000));
+              return;
+            }
+          } else {
+            // ★ Guest mode: no token needed
+            tk = {
+              ok: true,
+              token: "guest:" + Date.now(),
+              tier: "member",
+              patches_used: 0,
+              patches_limit: null
+            };
+            procLog("Guest mode — unlimited free patches", "ok");
+            $("#progressFill").style.width = "1%";
+            $("#progressPct").textContent = "1%";
           }
 
-          // ── Server-side patch — DIRECT upload to the patch service ──
-          // The Void API key stays server-side. The browser uploads the video
-          // STRAIGHT to the patch service (bypassing Vercel entirely, whose
-          // 4.5 MB function body limit 413s any real video), carrying the
-          // token minted by /api/authorize. The service validates the token,
-          // enforces tier caps (size/res/FPS + daily limit, counted once
-          // here), forwards the file to Void, and streams the patched MP4
-          // back to the browser. Falls back to the same-origin relay only
-          // if PATCH_API_URL is not configured.
+          // ── Server-side patch ──
           $("#progressStage").textContent = "Optimizing…";
           procLog("Connecting to the optimizer service…", "pur");
           const _hevcUpload = await clientDetectHEVC(file);
@@ -887,22 +810,18 @@
             ? PATCH_API.replace(/\/+$/, "") + "/api/patch-void"
             : "/api/patch-void";
           const tkId = String(tk.token || "").split(":")[1] || "";
-          // HTTP headers must be ISO-8859-1: filenames containing emoji/CJK/
-          // other Unicode throw "String contains non ISO-8859-1 code point".
-          // Send an ASCII-safe name so the header never fails.
           const safeName = file.name.replace(/[^\x20-\x7E]/g, "_");
-          // Slow/unstable connections (e.g. mobile data) can drop the direct
-          // upload mid-flight — retry a few times before giving up. If the
-          // server already finished the job (we hold its token), reconnect and
-          // download the result instead of re-uploading everything.
+
           async function resumeDownload(id) {
             try {
               return await new Promise((resolve, reject) => {
                 const gx = new XMLHttpRequest();
                 gx.open("GET", patchUrl + "/job/" + id);
                 gx.responseType = "blob";
-                gx.setRequestHeader("X-Patch-Token", tk.token);
-                if (tkId) gx.setRequestHeader("X-Discord-Id", tkId);
+                if (!isGuest && tk.token) {
+                  gx.setRequestHeader("X-Patch-Token", tk.token);
+                  if (tkId) gx.setRequestHeader("X-Discord-Id", tkId);
+                }
                 gx.onload = () => {
                   if (gx.status >= 200 && gx.status < 300) resolve(gx.response);
                   else reject(new Error("resume failed"));
@@ -928,6 +847,7 @@
               });
             } catch (e) { return null; }
           }
+
           const MAX_ATTEMPTS = 4;
           let outBuf = null;
           let jobId = null;
@@ -941,11 +861,11 @@
             activeXhr = xhr;
             xhr.open("POST", patchUrl);
             xhr.responseType = "blob";
-            xhr.setRequestHeader("X-Patch-Token", tk.token);
-            // Discord ID comes straight from the signed token payload
-            // (tier:id:expires:nonce:flag:sig) — the server checks it against
-            // the token so one user can't burn another's quota.
-            if (tkId) xhr.setRequestHeader("X-Discord-Id", tkId);
+            // ★ Only send auth headers if not guest
+            if (!isGuest && tk.token && !tk.token.startsWith("guest:")) {
+              xhr.setRequestHeader("X-Patch-Token", tk.token);
+              if (tkId) xhr.setRequestHeader("X-Discord-Id", tkId);
+            }
             xhr.setRequestHeader("X-Filename", safeName);
             xhr.upload.onprogress = (ev) => {
               if (!ev.lengthComputable) return;
@@ -954,19 +874,14 @@
               $("#progressPct").textContent = Math.round(pct) + "%";
               $("#progressStage").textContent = "Uploading " + fmtBytes(ev.loaded) + " / " + fmtBytes(ev.total);
             };
-            // Upload finished → server is processing (encoding + patching).
-            // Keep the bar moving smoothly instead of stalling at 90%.
             xhr.upload.onload = () => {
               $("#progressStage").textContent = "Optimizing…";
               startFinalizeAnim();
             };
-            // Response = optimized file streaming back to the browser. The
-            // old UI sat frozen at 99.99% during this (can take minutes on
-            // slow links) - report real download progress in the console.
             let lastDlPct = -1, dlMsgShown = false;
             xhr.onprogress = (ev) => {
               if (ev.lengthComputable && ev.total > 0) {
-                stopFinalizeAnim(); // real bytes now drive the bar to 100%
+                stopFinalizeAnim();
                 const floor = Math.max(50, parseFloat($("#progressFill").style.width) || 50);
                 const pct = Math.min(99.9, floor + (ev.loaded / ev.total) * (100 - floor));
                 $("#progressFill").style.width = pct + "%";
@@ -990,12 +905,9 @@
               outBuf = await new Promise((resolve, reject) => {
                 xhr.onload = () => {
                   if (xhr.status >= 200 && xhr.status < 300) {
-                    resolve(xhr.response); // optimized MP4 blob
+                    resolve(xhr.response);
                     return;
                   }
-                  // Error body is JSON {error} — surface the real message.
-                  // With responseType="blob" the error body is a Blob, so read
-                  // it as text before parsing.
                   let msg = "Optimization failed (" + xhr.status + ")";
                   const errBody = xhr.response;
                   if (errBody instanceof Blob) {
@@ -1013,15 +925,10 @@
                 xhr.onerror = () => reject(new Error("Connection to the optimizer was interrupted — try again."));
                 xhr.onabort = () => reject(new Error("aborted"));
                 xhr.onreadystatechange = () => {
-                  // Headers carry the resume token BEFORE the file streams
-                  // back - as soon as they arrive, a mid-download drop can be
-                  // recovered with a simple re-fetch instead of a re-upload.
                   if (xhr.readyState >= 2 && !jobId) {
                     const jh = xhr.getResponseHeader("X-Job-Id");
                     if (jh) jobId = jh;
                   }
-                  // Every delivery (HEVC or H.264) shows the downloading line
-                  // as soon as the result starts streaming; real % replaces it.
                   if (xhr.readyState === 3 && (parseFloat($("#progressFill").style.width) || 0) < 98) {
                     if (!finalizeTimer) startFinalizeAnim(99.9);
                     else if (animBand < 99.9) animBand = 99.9;
@@ -1033,17 +940,11 @@
                 };
                 xhr.send(fd);
               });
-              break; // upload succeeded
+              break;
             } catch (e) {
               stopFinalizeAnim();
               if (e && e.message === "aborted") throw e;
-              // Server answered with an HTTP error (e.g. 429 daily limit) —
-              // surface its message immediately instead of retrying. BUT
-              // 502/503/504 are transient gateway errors (a restart or a
-              // brief upstream blip) - those retry like a network drop.
               if (e && e.status && e.status >= 400 && e.status !== 502 && e.status !== 503 && e.status !== 504) throw e;
-              // Server-side job already finished? Reconnect and download the
-              // finished file - no re-upload, no re-encode, no extra quota.
               if (jobId) {
                 const resumed = await resumeDownload(jobId);
                 if (resumed) { outBuf = resumed; break; }
@@ -1054,8 +955,7 @@
               activeXhr = null;
             }
           }
-          // Live usage tick — the patch just consumed one use
-          {
+          if (!isGuest) {
             const _cnt = $("#usage-count");
             if (_cnt) _cnt.textContent = String((parseInt(_cnt.textContent || "0", 10) || 0) + 1);
           }
@@ -1063,7 +963,6 @@
           if (!(outBuf instanceof Blob)) throw new Error("Empty response from optimizer server.");
           stopFinalizeAnim();
 
-          // Finalize (simulated): continue from current % → 100
           const dlBase = Math.min(99.9, parseFloat($("#progressFill").style.width) || 90);
           $("#progressFill").style.width = dlBase + "%";
           $("#progressPct").textContent = Math.round(dlBase) + "%";
@@ -1087,16 +986,11 @@
 
           const blob = outBuf;
 
-          // NOTE: no /api/track call here — the use is counted by the patch
-          // service on /api/patch-void, exactly once per patch.
-
           if (objectUrl) URL.revokeObjectURL(objectUrl);
           objectUrl = URL.createObjectURL(blob);
           patchedName = "rtx-optimized-" + Math.random().toString(16).slice(2, 6) + ".mp4";
           $("#progressFill").style.width = "100%";
           $("#progressPct").textContent = "100%";
-          // Done state: the console stays on screen with the final log;
-          // only two buttons are shown — Optimize Another + Download.
           $("#dropZoneWrap").style.display = "none";
           $("#processingView").style.display = "block";
           $("#cancelBtn").style.display = "none";
@@ -1107,7 +1001,7 @@
           doDownload();
           if (againBtn) { againBtn.style.display = ""; againBtn.textContent = AGAIN_LABEL; }
           try { dlBtn.style.display = ""; dlBtn.disabled = false; dlBtn.classList.add("pulse"); dlBtn.scrollIntoView({ behavior: "smooth", block: "center" }); }
-          catch (e) { /* UI nicety only — download still works */ }
+          catch (e) { /* UI nicety only */ }
         } catch (e) {
           stopFinalizeAnim();
           if (abortCtrl && abortCtrl.signal.aborted) {
@@ -1115,13 +1009,11 @@
             resetUI();
             return;
           }
-          // Clear the stale file so the dropzone never keeps showing the old video
           if (objectUrl) { URL.revokeObjectURL(objectUrl); objectUrl = null; }
           file = null; input.value = ""; patchedName = "";
           procLog("Error: " + ((e && e.message) || "optimization failed"), "err");
           $("#procStatus").textContent = "Error";
           $("#progressStage").textContent = ((e && e.message) || "optimization failed") + " — try another file";
-          // Keep the error on screen (no auto-reset) — the user clicks Try Again
           $("#cancelBtn").style.display = "none";
           dlBtn.style.display = "none"; dlBtn.disabled = true;
           if (againBtn) { againBtn.textContent = "Try Again"; againBtn.style.display = ""; }
@@ -1131,7 +1023,7 @@
 
     $("#cancelBtn").addEventListener("click", () => {
       if (abortCtrl) abortCtrl.abort();
-      if (activeXhr) activeXhr.abort(); // abort an in-flight upload
+      if (activeXhr) activeXhr.abort();
       resetTimers();
       $("#procStatus").textContent = "Aborted";
       $("#progressStage").textContent = "Cancelled";
@@ -1146,8 +1038,6 @@
     };
     dlBtn.addEventListener("click", doDownload);
     $("#clearBtn").addEventListener("click", () => { file = null; input.value = ""; resetUI(); });
-    // "Patch Another One" — shown after a successful patch; resets everything
-    // so the user can immediately drop the next video.
     if (againBtn) againBtn.addEventListener("click", () => {
       if (objectUrl) URL.revokeObjectURL(objectUrl);
       objectUrl = null; file = null; input.value = ""; patchedName = "";
@@ -1158,7 +1048,7 @@
     resetUI();
   }
 
-  /* ── ANALYTICS — TikTok Analyzer (single video, like Zilem) ── */
+  /* ── ANALYTICS ───────────────────────────────────────────── */
   function initAnalytics() {
     const input = $("#ttUrlInput"), btn = $("#ttAnalyzeBtn");
     const loading = $("#ttLoading"), errEl = $("#ttError"), res = $("#ttResult");
@@ -1199,7 +1089,6 @@
     }
 
     function render(d) {
-      // demo note
       const note = $("#ttDemoNote");
       if (d._demo) {
         note.style.display = "";
@@ -1273,8 +1162,8 @@
     input.addEventListener("keydown", (e) => { if (e.key === "Enter") analyze(); });
   }
 
-  /* ── ADMIN (works on local server AND Vercel) ══════════════ */
-  let admPage = 1, admPer = 50; // page state shared by loadUsers/ensurePager (top level)
+  /* ── ADMIN ────────────────────────────────────────────────── */
+  let admPage = 1, admPer = 50;
   function initAdmin() {
     const form = $("#admin-login-form"), panel = $("#admin-panel");
     function showPanel() {
@@ -1312,7 +1201,6 @@
     });
   }
 
-
   async function clientDetectHEVC(f) {
     try {
       if (!f || f.size < 4096) return false;
@@ -1335,7 +1223,8 @@
       return hevc;
     } catch (e) { return false; }
   }
-  /* ── Admin: recent jobs (last hour, auto-cleared server-side) ─── */
+
+  /* ── Admin: recent jobs ──────────────────────────────────── */
   let _jobsTimer = null;
   function _jobEsc(v) {
     return String(v == null ? "" : v).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -1491,7 +1380,7 @@
     }
   }
 
-  /* ── TIERS page ══════════════════════════════════════════════ */
+  /* ── TIERS page ───────────────────────────────────────────── */
   function initTiers() {
     api("/api/health").then((h) => { API_DISCORD = !!(h && h.json && h.json.discordConfigured); });
     api("/api/me").then((m) => {
@@ -1505,21 +1394,14 @@
     });
   }
 
-  /* ── Discord logo + login popup ────────────────────────────── */
+  /* ── Discord logo + login ────────────────────────────────── */
   const DISCORD_SVG = '<svg class="dl-logo" viewBox="0 0 127.14 96.36" aria-hidden="true"><path fill="currentColor" d="M107.7 8.07A105.15 105.15 0 0 0 81.47 0a72.06 72.06 0 0 0-3.36 6.83 97.68 97.68 0 0 0-29.11 0A72.37 72.37 0 0 0 45.64 0 105.89 105.89 0 0 0 19.39 8.09C2.79 32.65-1.71 56.6.54 80.21h0A105.73 105.73 0 0 0 32.71 96.36a77.7 77.7 0 0 0 6.89-11.11 68.42 68.42 0 0 1-10.85-5.18c.91-.66 1.8-1.34 2.66-2a75.57 75.57 0 0 0 64.32 0c.87.71 1.76 1.39 2.66 2a68.68 68.68 0 0 1-10.87 5.19 77 77 0 0 0 6.89 11.1A105.25 105.25 0 0 0 126.6 80.22h0C129.24 52.84 122.09 29.11 107.7 8.07ZM42.45 65.69C36.18 65.69 31 60 31 53s5-12.74 11.43-12.74S54 46 53.89 53 48.84 65.69 42.45 65.69Zm42.24 0C78.41 65.69 73.25 60 73.25 53s5-12.74 11.45-12.74S96.23 46 96.12 53 91.08 65.69 84.69 65.69Z"/></svg>';
-  // inject the logo into every [data-discord] element
   document.querySelectorAll("[data-discord]").forEach((el) => {
     if (!el.querySelector(".dl-logo")) el.insertAdjacentHTML("afterbegin", DISCORD_SVG);
   });
 
-  let API_DISCORD = true; // /api/health → discordConfigured
+  let API_DISCORD = true;
   function openLogin() {
-    // Same-tab login redirect (no popup): the server-side OAuth endpoint
-    // sets the CSRF state cookie and redirects to Discord; the callback
-    // lands back on the site with a session. Client-built authorize URLs
-    // cannot work — the callback requires the server's state cookie.
-    // Pass the current view (hash) through so the callback returns here
-    // instead of dumping the user back at the dashboard.
     const ret = (location.pathname || "/") + (location.search || "");
     location.href = "/api/discord?action=login&return=" + encodeURIComponent(ret);
   }
@@ -1528,15 +1410,9 @@
     if (t) { e.preventDefault(); openLogin(); }
   });
 
-  /* ── SPA router (single index.html, clean-path views via History API) ──
-     Routes are plain paths (/patcher, /tiers, …) — vercel.json rewrites each
-     of them to this same index.html. We intercept clicks on same-page route
-     links and use pushState so the URL never grows a "#/" hash. Legacy
-     "#/patcher"-style links (old bookmarks/shares) still resolve correctly
-     via the hash fallback below, and get silently upgraded to the clean
-     path on load. */
+  /* ── SPA router ───────────────────────────────────────────── */
   const VIEWS = ["dashboard", "patcher", "analytics", "tiers", "howto", "admin", "login"];
-  const INIT = {}; // per-view init ran flag
+  const INIT = {};
 
   function currentView() {
     const h = (location.hash || "").replace(/^#\/?/, "").split("?")[0].split("/")[0];
@@ -1565,8 +1441,6 @@
     if (!a || a.target === "_blank" || a.hasAttribute("data-discord-link") || a.hasAttribute("data-login")) return;
     const href = a.getAttribute("href");
     if (!isRouteHref(href)) return;
-    // Multi-page mode: rewrite to the real .html file and let the browser
-    // navigate — no pushState, no rewrites needed, refresh-proof on any host.
     const view = href === "/" ? "dashboard" : href.replace(/^\/+/, "").split(/[?#]/)[0].split("/")[0];
     a.href = pathFor(view);
   });
@@ -1586,13 +1460,11 @@
       if (name === "tiers") initTiers();
       if (name === "login") initLoginView();
     }
-    initReveal(); // re-observe .reveal elements in the newly shown view
+    initReveal();
     window.scrollTo(0, 0);
   }
 
   function initLoginView() {
-    // Direct #/login access: bounce logged-in users home, otherwise send
-    // them straight into the server-side Discord OAuth flow.
     api("/api/me").then((m) => {
       const { user } = normalizeMe(m && m.json);
       if (user) { location.replace("/"); return; }
@@ -1602,14 +1474,7 @@
 
   window.addEventListener("popstate", () => showView(currentView()));
 
-  /* ── login error banner ───────────────────────────────────────
-     The OAuth callback redirects back with ?login_error=<code> on failure.
-     Previously nothing on the page rendered this, so a failed login silently
-     dumped the user back at the "Login with Discord" button — the endless
-     re-login loop. Show a clear, dismissible banner explaining what happened.
-     Note: with auto-join active, non-members are added to the server during
-     login, so this banner only appears in real failure cases (e.g. the user
-     un-checked "Join server" on Discord's consent screen). */
+  /* ── login error banner ───────────────────────────────────── */
   const LOGIN_ERROR_MSG = {
     not_in_server:        "You must be in the Discord server to log in.",
     join_declined:        'You un-checked "Join server" on the Discord screen. Log in again and leave it checked so we can add you to the server.',
@@ -1642,8 +1507,6 @@
 
   /* ── boot ───────────────────────────────────────────────────── */
   function boot() {
-    // Drop any stale cached auth response left over from a previous page
-    // load (sessionStorage persists across the OAuth round-trip).
     try {
       const stale = ["/api/me"];
       stale.forEach((k) => sessionStorage.removeItem("rtxcache:" + k));
@@ -1651,8 +1514,6 @@
     initReveal();
     showLoginErrorBanner();
     const v = window.__VIEW__ || currentView();
-    // Legacy "#/tiers" bookmark/share link → silently upgrade to the clean
-    // path so the hash never lingers in the address bar.
     if (location.hash) {
       try { history.replaceState({}, "", pathFor(v) + (location.search || "")); } catch {}
     }
@@ -1664,9 +1525,6 @@
 
 /* ═══════════════════════════════════════════════════════════════
    Payment badges — injected into the footer of every page.
-   Renders a row of white "accepted payment method" buttons above
-   the footer bottom bar (Visa, Mastercard, Apple Pay, Google Pay,
-   Amazon Pay, PayPal, Crypto, Revolut, Wise, Remitly, Bank transfer).
    ═══════════════════════════════════════════════════════════════ */
 (function () {
   "use strict";
