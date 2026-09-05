@@ -7,7 +7,7 @@
    browser. */
 window.RTX = window.RTX || {};
 // Railway patch service base URL — /api/patch-void is appended by the patcher.
-window.RTX.PATCH_API_URL = "https://www.rtxfury.xyz";
+window.RTX.PATCH_API_URL = "https://tiktok-sasi.vercel.app";
 // Discord OAuth — Client ID from the Discord Developer Portal
 // (Applications -> OAuth2 -> General). login.html uses this to build the
 // authorize URL; the callback runs at DISCORD_REDIRECT_URI.
